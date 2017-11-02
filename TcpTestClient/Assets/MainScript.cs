@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Threading;
 using UnityEngine;
 
 public class MainScript : MonoBehaviour
@@ -19,20 +20,51 @@ public class MainScript : MonoBehaviour
     private NetworkStream stream;
     private Texture2D depthTexture;
     private Texture2D rgbTexture;
-
+    
     private byte[] depthData;
     private byte[] rgbData;
+    private byte[] depthDataSwapper;
+    private byte[] rgbDataSwapper;
+
+    private Thread thread;
 
     private void Start()
     {
+        thread = new Thread(() => RollThatBeautifulBeanFootage());
+        thread.IsBackground = true;
+        thread.Start();
         depthData = new byte[depthImageSize];
         rgbData = new byte[rgbImageSize];
+        depthDataSwapper = new byte[depthImageSize];
+        rgbDataSwapper = new byte[rgbImageSize];
         depthTexture = new Texture2D(512, 424, TextureFormat.R8, false);
         rgbTexture = new Texture2D(1920, 1080, TextureFormat.YUY2, false);
-        StartCoroutine(RollThatBeautifulBeanFootage());
     }
 
-    private IEnumerator RollThatBeautifulBeanFootage()
+    private void Update()
+    {
+        lock(depthDataSwapper)
+        {
+            depthTexture.LoadRawTextureData(depthDataSwapper);
+        }
+        depthTexture.Apply();
+        
+        lock(rgbDataSwapper)
+        {
+            rgbTexture.LoadRawTextureData(rgbDataSwapper);
+        }
+        rgbTexture.Apply();
+        
+        DepthMat.SetTexture("_MainTex", depthTexture);
+        RgbMat.SetTexture("_MainTex", rgbTexture);
+    }
+
+    private void OnDestroy()
+    {
+        thread.Abort();
+    }
+
+    private void RollThatBeautifulBeanFootage()
     {
         while (true)
         {
@@ -48,8 +80,7 @@ public class MainScript : MonoBehaviour
             {
                 if (offset != 0)
                 {
-                    // Wait a frame if we have to read more than once
-                    yield return null;
+                    // Wait if we have to read more than once
                 }
             
                 offset += stream.Read(depthData, offset, depthData.Length - offset);
@@ -59,24 +90,25 @@ public class MainScript : MonoBehaviour
             {
                 if(offset != 0)
                 {
-                    // Wait a frame if we have to read more than once
-                    yield return null;
+                    // Wait if we have to read more than once
                 }
                 offset += stream.Read(rgbData, offset, rgbData.Length - offset);
             }
 
-            depthTexture.LoadRawTextureData(depthData);
-            depthTexture.Apply();
-
-            rgbTexture.LoadRawTextureData(rgbData);
-            rgbTexture.Apply();
-
-            DepthMat.SetTexture("_MainTex", depthTexture);
-            RgbMat.SetTexture("_MainTex", rgbTexture);
             stream.Close();
             client.Close();
 
-            yield return null;
+
+            lock (depthDataSwapper)
+            {
+                depthData.CopyTo(depthDataSwapper, 0);
+                //depthDataSwapper = depthData;
+            }
+            lock (rgbDataSwapper)
+            {
+                rgbData.CopyTo(rgbDataSwapper, 0);
+                //rgbDataSwapper = rgbData;
+            }
         }
     }
 }
