@@ -39,13 +39,20 @@ namespace Microsoft.Samples.Kinect.ColorBasics
 
         private void OnConnected(TcpClient client)
         {
-            NetworkStream stream = client.GetStream();
+            try
+            {
+                NetworkStream stream = client.GetStream();
 
-            byte[] depthImage = depthDataGetter();
-            stream.Write(depthImage, 0, depthImage.Length);
+                byte[] depthImage = depthDataGetter();
+                stream.Write(depthImage, 0, depthImage.Length);
 
-            byte[] rgbImage = rgbDataGetter();
-            stream.Write(rgbImage, 0, rgbImage.Length);
+                byte[] rgbImage = rgbDataGetter();
+                stream.Write(rgbImage, 0, rgbImage.Length);
+            }
+            catch
+            {
+                Console.WriteLine("Connection broke");
+            }
         }
     }
 }
