@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.Kinect;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -11,18 +12,15 @@ namespace Microsoft.Samples.Kinect.ColorBasics
     public class ServerCommunication
     {
         private TcpListener server;
+        
+        private readonly Func<Byte[]> networkDataGetter;
 
-        private Func<Byte[]> depthDataGetter;
-        private Func<Byte[]> rgbDataGetter;
-
-        public ServerCommunication(Func<Byte[]> depthDataGetter, Func<Byte[]> rgbDataGetter)
+        public ServerCommunication(Func<Byte[]> networkDataGetter)
         {
-            this.depthDataGetter = depthDataGetter;
-            this.rgbDataGetter = rgbDataGetter;
-            HostServer();
+            this.networkDataGetter = networkDataGetter;
         }
 
-        public async void HostServer()
+        public async void Start()
         {
             server = new TcpListener(IPAddress.Any, 1990);
             server.Start();
@@ -36,18 +34,14 @@ namespace Microsoft.Samples.Kinect.ColorBasics
                 client.Close();
             }
         }
-
+        
         private void OnConnected(TcpClient client)
         {
             try
             {
                 NetworkStream stream = client.GetStream();
-
-                byte[] depthImage = depthDataGetter();
-                stream.Write(depthImage, 0, depthImage.Length);
-
-                byte[] rgbImage = rgbDataGetter();
-                stream.Write(rgbImage, 0, rgbImage.Length);
+                byte[] cameraSpaceBytes = networkDataGetter();
+                stream.Write(cameraSpaceBytes, 0, cameraSpaceBytes.Length);
             }
             catch
             {

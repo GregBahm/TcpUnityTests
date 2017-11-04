@@ -1,4 +1,4 @@
-﻿Shader "Unlit/KinectPointShader"
+﻿Shader "Unlit/KinectBufferPointShader"
 {
 	Properties
 	{
@@ -16,33 +16,32 @@
 
 		Pass
 		{
-			Cull Front
+			Cull Off
 			CGPROGRAM
 			#pragma vertex vert
 			#pragma geometry geo
 			#pragma fragment frag
-			
-			#include "UnityCG.cginc"
 
-            StructuredBuffer<float2> _SomePointsBuffer;
+			
+			#include "UnityCG.cginc" 
+
+            StructuredBuffer<float3> _SomePointsBuffer;
 
 			struct v2g
 			{
 				float4 rawVert : SV_Position;
+                float2 uv : TEXCOORD0;
 				float3 viewDir : TEXCOORD1;
-				float2 uv : TEXCOORD2;
 			};
 
 			struct g2f
 			{
 				float4 vertex : SV_POSITION;
-				float2 uv : TEXCOORD0;
-				float2 cardUv : TEXCOORD2;
-				float depthKey : TEXCOORD1;
+                float2 uv : TEXCOORD0;
+                float2 cardUv : TEXCOORD1;
 			};
 
             sampler2D _MainTex;
-            sampler2D _DepthTex;
 			float _PointSize;
 			float _MaxDistance;
 			float _MinDistance;
@@ -50,14 +49,18 @@
 			float _MinAng;
 			float _CardUvScale;
 
+            float2 GetUvFromId(uint id)
+            {
+                float x = (float)(id % 512) / 424;
+                float y = (float)(id / 424) / 512;
+                return float2(x, y);
+            }
+
             v2g vert(uint meshId : SV_VertexID, uint instanceId : SV_InstanceID)
             {
-                float2 meshPos = _SomePointsBuffer[instanceId];
-                float depthVal = tex2Dlod(_DepthTex, float4(meshPos.x, meshPos.y, 0, 0)).x;
 				v2g o;
-				o.uv = meshPos;
-                meshPos.y *= -1;
-				o.rawVert = float4(meshPos.x, meshPos.y, depthVal, 1);
+                o.uv = GetUvFromId(instanceId);
+				o.rawVert = float4(_SomePointsBuffer[instanceId], 1);
 				o.viewDir = normalize(WorldSpaceViewDir(o.rawVert));
 				return o;
 			}
@@ -89,31 +92,34 @@
 				float4 bottomVertB = rightScreenOffset + bottomScreenOffset + vertBaseClip;
 
 				g2f o;
-				o.uv = p[0].uv;
-				o.depthKey = vertBase.z;
+                o.uv = p[0].uv;
 				o.vertex = topVertB;
-				o.cardUv = float2(0, 0);
+                o.cardUv = float2(0, 0);
 				triStream.Append(o);
-				o.cardUv = float2(1, 0);
+
 				o.vertex = topVertA;
+                o.cardUv = float2(1, 0);
 				triStream.Append(o);
-				o.cardUv = float2(0, 1);
+
 				o.vertex = bottomVertB;
+                o.cardUv = float2(0, 1);
 				triStream.Append(o);
-				o.cardUv = float2(1, 1);
+
 				o.vertex = bottomVertA;
+                o.cardUv = float2(1, 1);
 				triStream.Append(o);
 			}
 			
 			fixed4 frag (g2f i) : SV_Target
 			{
-                clip(i.depthKey - .05);
+                //clip(i.depthKey - .05);
 				float centerDist = length(abs(i.cardUv - .5)) * 2;
 				clip(-centerDist + 1);
-
-                fixed4 col = tex2D(_MainTex, i.uv);
-                fixed3 rgbCol = YuvToRgb(col.g, col.r, col.b);
-                return fixed4(rgbCol, 1);
+                return float4(i.uv.x, i.uv.y, 0, 1);
+                //
+                //fixed4 col = tex2D(_MainTex, i.uv);
+                //fixed3 rgbCol = YuvToRgb(col.g, col.r, col.b);
+                //return fixed4(rgbCol, 1);
 			}
 			ENDCG
 		}

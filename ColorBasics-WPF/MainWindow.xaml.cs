@@ -15,6 +15,8 @@ namespace Microsoft.Samples.Kinect.ColorBasics
     using System.Windows.Media.Imaging;
     using Microsoft.Kinect;
     using System.Net;
+    using System.Collections.Generic;
+    using System.Linq;
 
     public partial class MainWindow : Window, INotifyPropertyChanged
     {
@@ -31,12 +33,19 @@ namespace Microsoft.Samples.Kinect.ColorBasics
         private WriteableBitmap depthBitmap = null;
         
         private FrameDescription depthFrameDescription = null;
+        private FrameDescription colorFrameDescription;
 
         private byte[] colorPixels = null;
+        private ushort[] rawDepth = null;
         private byte[] depthPixels = null;
         
+        CameraSpacePoint[] cameraSpaceDepthData;
+        ColorSpacePoint[] colorSpaceDepthData;
+
         private string statusText = null;
-        
+
+        private readonly ServerCommunication communicationServer;
+
         public MainWindow()
         {
             this.kinectSensor = KinectSensor.GetDefault();
@@ -52,8 +61,11 @@ namespace Microsoft.Samples.Kinect.ColorBasics
 
             this.depthPixels = new byte[this.depthFrameDescription.Width * this.depthFrameDescription.Height];
 
-            FrameDescription colorFrameDescription = this.kinectSensor.ColorFrameSource.CreateFrameDescription(ColorImageFormat.Bgra);
+            this.rawDepth = new ushort[this.depthFrameDescription.Width * this.depthFrameDescription.Height];
+            this.cameraSpaceDepthData = new CameraSpacePoint[rawDepth.Length];
+            this.colorSpaceDepthData = new ColorSpacePoint[rawDepth.Length];
 
+            this.colorFrameDescription = this.kinectSensor.ColorFrameSource.CreateFrameDescription(ColorImageFormat.Bgra);
             this.colorPixels = new byte[colorFrameDescription.Width * colorFrameDescription.Height * 2];
 
             this.depthBitmap = new WriteableBitmap(this.depthFrameDescription.Width, this.depthFrameDescription.Height, 96.0, 96.0, PixelFormats.Gray8, null);
@@ -69,7 +81,8 @@ namespace Microsoft.Samples.Kinect.ColorBasics
 
             this.DataContext = this;
 
-            new ServerCommunication(GetDepthData, GetRgbData);
+            this.communicationServer = new ServerCommunication(GetDataForNetwork);
+            this.communicationServer.Start();
 
             MyIP = Dns.GetHostEntry(Dns.GetHostName()).AddressList[3].ToString();
 
@@ -139,9 +152,8 @@ namespace Microsoft.Samples.Kinect.ColorBasics
             {
                 if (colorFrame != null)
                 {
-                    colorFrame.CopyRawFrameDataToArray(colorPixels);
-
                     FrameDescription colorFrameDescription = colorFrame.FrameDescription;
+                    colorFrame.CopyRawFrameDataToArray(colorPixels);
 
                     using (KinectBuffer colorBuffer = colorFrame.LockRawImageBuffer())
                     {
@@ -162,22 +174,7 @@ namespace Microsoft.Samples.Kinect.ColorBasics
                 }
             }
         }
-        public byte[] GetDepthData()
-        {
-            lock (depthPixels)
-            {
-                return depthPixels;
-            }
-        }
-
-        public byte[] GetRgbData()
-        {
-            lock(colorPixels)
-            {
-                return colorPixels;
-            }
-        }
-
+        
         private void Reader_FrameArrived(object sender, DepthFrameArrivedEventArgs e)
         {
             bool depthFrameProcessed = false;
@@ -224,16 +221,13 @@ namespace Microsoft.Samples.Kinect.ColorBasics
             {
                 // Get the depth for this pixel
                 ushort depth = frameData[i];
-
+                this.rawDepth[i] = depth;
                 // To convert to a byte, we're mapping the depth value to the byte range.
                 // Values outside the reliable depth range are mapped to 0 (black).
                 this.depthPixels[i] = (byte)(depth >= minDepth && depth <= maxDepth ? (depth / MapDepthToByte) : 0);
             }
         }
-
-        /// <summary>
-        /// Renders color pixels into the writeableBitmap.
-        /// </summary>
+        
         private void RenderDepthPixels()
         {
             this.depthBitmap.WritePixels(
@@ -248,6 +242,58 @@ namespace Microsoft.Samples.Kinect.ColorBasics
             // on failure, set the status text
             this.StatusText = this.kinectSensor.IsAvailable ? Properties.Resources.RunningStatusText
                                                             : Properties.Resources.SensorNotAvailableStatusText;
+        }
+
+        private byte[] GetDataForNetwork()
+        {
+            lock (rawDepth)
+            {
+                this.kinectSensor.CoordinateMapper.MapDepthFrameToCameraSpace(rawDepth, cameraSpaceDepthData);
+                this.kinectSensor.CoordinateMapper.MapDepthFrameToColorSpace(rawDepth, colorSpaceDepthData);
+
+                byte[] cameraSpaceBytes = GetNetworkDataAsBytes(cameraSpaceDepthData).ToArray();
+                //IEnumerable<byte> colorByteData = GetColorData(colorSpaceDepthData);
+
+                return cameraSpaceBytes;
+                //return cameraSpaceBytes.Concat(colorByteData).ToArray();
+            }
+        }
+
+        private IEnumerable<byte> GetColorData(ColorSpacePoint[] colorData)
+        {
+            for (int i = 0; i < colorData.Length; i++)
+            {
+                ColorSpacePoint colorPoint = colorData[i];
+                int colorByeStartIndex = GetColorByteStartIndex(colorPoint);
+                yield return colorPixels[colorByeStartIndex];
+                yield return colorPixels[colorByeStartIndex + 1];
+            }
+        }
+
+        private int GetColorByteStartIndex(ColorSpacePoint colorPoint)
+        {
+            int x = (int)colorPoint.X;
+            int y = (int)colorPoint.Y;
+            return (colorFrameDescription.Height * x + y) * 2;
+        }
+
+        private IEnumerable<byte> GetNetworkDataAsBytes(CameraSpacePoint[] cameraSpaceData)
+        {
+            foreach (CameraSpacePoint item in cameraSpaceData)
+            {
+                foreach (byte xByte in BitConverter.GetBytes(item.X))
+                {
+                    yield return xByte;
+                }
+                foreach (byte yByte in BitConverter.GetBytes(item.Y))
+                {
+                    yield return yByte;
+                }
+                foreach (byte zByte in BitConverter.GetBytes(item.Z))
+                {
+                    yield return zByte;
+                }
+            }
         }
     }
 }
