@@ -98,13 +98,13 @@
 				triStream.Append(o);
 
 				o.vertex = topVertA;
-                o.cardUv = float2(1, 0);
+                o.cardUv = float2(1, 0); 
 				triStream.Append(o);
 
 				o.vertex = bottomVertB;
                 o.cardUv = float2(0, 1);
 				triStream.Append(o);
-
+                 
 				o.vertex = bottomVertA;
                 o.cardUv = float2(1, 1);
 				triStream.Append(o);
@@ -115,11 +115,11 @@
                 //clip(i.depthKey - .05);
 				float centerDist = length(abs(i.cardUv - .5)) * 2;
 				clip(-centerDist + 1);
-                return float4(i.uv.x, i.uv.y, 0, 1);
-                //
-                //fixed4 col = tex2D(_MainTex, i.uv);
-                //fixed3 rgbCol = YuvToRgb(col.g, col.r, col.b);
-                //return fixed4(rgbCol, 1);
+
+                fixed4 col = tex2D(_MainTex, i.uv);
+
+                fixed3 rgbCol = YuvToRgb(col.g, col.r, col.b);
+                return fixed4(rgbCol, 1);
 			}
 			ENDCG
 		}

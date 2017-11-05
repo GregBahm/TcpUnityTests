@@ -251,11 +251,11 @@ namespace Microsoft.Samples.Kinect.ColorBasics
                 this.kinectSensor.CoordinateMapper.MapDepthFrameToCameraSpace(rawDepth, cameraSpaceDepthData);
                 this.kinectSensor.CoordinateMapper.MapDepthFrameToColorSpace(rawDepth, colorSpaceDepthData);
 
-                byte[] cameraSpaceBytes = GetNetworkDataAsBytes(cameraSpaceDepthData).ToArray();
-                //IEnumerable<byte> colorByteData = GetColorData(colorSpaceDepthData);
+                IEnumerable<byte> cameraSpaceBytes = GetNetworkDataAsBytes(cameraSpaceDepthData);
+                byte[] colorByteData = GetColorData(colorSpaceDepthData).ToArray();
 
-                return cameraSpaceBytes;
-                //return cameraSpaceBytes.Concat(colorByteData).ToArray();
+                //return cameraSpaceBytes;
+                return cameraSpaceBytes.Concat(colorByteData).ToArray();
             }
         }
 

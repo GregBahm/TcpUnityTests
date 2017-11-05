@@ -11,9 +11,6 @@ using UnityEngine.Rendering;
 public class MainScript : MonoBehaviour
 {
     public string IpAddress = "127.0.0.1";
-
-    private const int depthImageSize = 217088;
-    private const int rgbImageSize = 4147200;
     
     public Material PointCloudMat;
 
@@ -25,28 +22,31 @@ public class MainScript : MonoBehaviour
     private byte[] depthData;
     private byte[] depthDataSwapper;
 
+    [SerializeField]
     private Texture2D rgbTexture;
 
     private ComputeBuffer pointsBuffer;
     private const int DepthTextureWidth = 512;
     private const int DepthTextureHeight = 424;
     private const int PointsCount = DepthTextureWidth * DepthTextureHeight;
+    private const int RgbImageBytesCount = DepthTextureWidth * DepthTextureHeight * 2;
     private const int PointsBufferStride = sizeof(float) * 3;
     private const int NetworkDataSize = PointsCount * PointsBufferStride;
 
     private Thread thread;
 
-    private CommandBuffer command;
-
     private void Start()
     {
+        depthData = new byte[NetworkDataSize];
+        depthDataSwapper = new byte[depthData.Length];
+        rgbData = new byte[RgbImageBytesCount];
+        rgbDataSwapper = new byte[RgbImageBytesCount];
+        rgbTexture = new Texture2D(DepthTextureWidth, DepthTextureHeight, TextureFormat.YUY2, false);
+        pointsBuffer = GetPointsBuffer();
+
         thread = new Thread(() => ReadNetworkData());
         thread.IsBackground = true;
         thread.Start();
-        depthData = new byte[NetworkDataSize];
-        depthDataSwapper = new byte[depthData.Length];
-        rgbTexture = new Texture2D(DepthTextureWidth, DepthTextureHeight, TextureFormat.YUY2, false);
-        pointsBuffer = GetPointsBuffer();
     }
 
     private ComputeBuffer GetPointsBuffer()
@@ -78,12 +78,16 @@ public class MainScript : MonoBehaviour
         PointCloudMat.SetPass(0);
         Graphics.DrawProcedural(MeshTopology.Points, 1, PointsCount);
     }
-
+     
     private void GetSourceData()
     {
         lock (depthDataSwapper)
         {
             pointsBuffer.SetData(depthDataSwapper);
+        }
+        lock (rgbDataSwapper)
+        {
+            //rgbTexture.LoadRawTextureData(rgbDataSwapper);
         }
     }
 
@@ -108,6 +112,12 @@ public class MainScript : MonoBehaviour
                 offset += stream.Read(depthData, offset, depthData.Length - offset);
             }
 
+            offset = 0;
+            while (offset < RgbImageBytesCount)
+            {
+                offset += stream.Read(rgbData, offset, rgbData.Length - offset);
+            }
+
             stream.Close();
             client.Close();
 
@@ -115,6 +125,10 @@ public class MainScript : MonoBehaviour
             lock (depthDataSwapper)
             {
                 depthData.CopyTo(depthDataSwapper, 0);
+            }
+            lock (rgbDataSwapper)
+            {
+                rgbData.CopyTo(rgbDataSwapper, 0);
             }
         }
     }
