@@ -7,7 +7,7 @@ Material:
   m_PrefabParentObject: {fileID: 0}
   m_PrefabInternal: {fileID: 0}
   m_Name: PointCloudMat
-  m_Shader: {fileID: 4800000, guid: 2721da6fcda77524c98c2cc853c8ea8a, type: 3}
+  m_Shader: {fileID: 4800000, guid: dad288b9f56477040ab9141f2f0af533, type: 3}
   m_ShaderKeywords: 
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 0
@@ -60,6 +60,7 @@ Material:
     - _Cutoff: 0.5
     - _DetailNormalMapScale: 1
     - _DstBlend: 0
+    - _FarPointSize: 0.0045
     - _GlossMapScale: 1
     - _Glossiness: 0.5
     - _GlossyReflections: 1
@@ -69,9 +70,10 @@ Material:
     - _MinAng: 0.4
     - _MinDistance: 1
     - _Mode: 0
+    - _NearPointSize: 0.003
     - _OcclusionStrength: 1
     - _Parallax: 0.02
-    - _PointSize: 0.0059
+    - _PointSize: 0.0028
     - _SmoothnessTextureChannel: 0
     - _SpecularHighlights: 1
     - _SrcBlend: 1

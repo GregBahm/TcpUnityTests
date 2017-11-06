@@ -12,12 +12,14 @@ namespace Microsoft.Samples.Kinect.ColorBasics
     public class ServerCommunication
     {
         private TcpListener server;
-        
-        private readonly Func<Byte[]> networkDataGetter;
 
-        public ServerCommunication(Func<Byte[]> networkDataGetter)
+        private readonly Func<Byte[]> depthDataGetter;
+        private readonly Func<Byte[]> rgbDataGetter;
+
+        public ServerCommunication(Func<Byte[]> depthDataGetter, Func<Byte[]> rgbDataGetter)
         {
-            this.networkDataGetter = networkDataGetter;
+            this.depthDataGetter = depthDataGetter;
+            this.rgbDataGetter = rgbDataGetter;
         }
 
         public async void Start()
@@ -31,15 +33,17 @@ namespace Microsoft.Samples.Kinect.ColorBasics
                 TcpClient client = await server.AcceptTcpClientAsync();
                 OnConnected(client);
 
-                client.Close();
+                client.Close(); 
             }
-        }
+        } 
         
         private void OnConnected(TcpClient client)
         {
             NetworkStream stream = client.GetStream();
-            byte[] cameraSpaceBytes = networkDataGetter();
+            byte[] cameraSpaceBytes = depthDataGetter();
             stream.Write(cameraSpaceBytes, 0, cameraSpaceBytes.Length);
+            byte[] rgbTextureBytes = rgbDataGetter();
+            stream.Write(rgbTextureBytes, 0, rgbTextureBytes.Length);
         }
     }
 }

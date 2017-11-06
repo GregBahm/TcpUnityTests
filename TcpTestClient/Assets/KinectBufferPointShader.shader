@@ -2,7 +2,8 @@
 {
 	Properties
 	{
-		_PointSize("Point Size", Range(0.05, 0.001)) = .1
+        _NearPointSize("Point Size", Range(0.01, 0.001)) = .003
+        _FarPointSize("Point Size", Range(0.01, 0.001)) = .0045
 		_MaxDistance("MaxDistance", Float) = 1.5
 		_MinDistance("MinDistance", Float) = 1
 		_MaxAng("MaxAng", Float) = 0.55
@@ -16,19 +17,22 @@
 
 		Pass
 		{
+
 			Cull Off
 			CGPROGRAM
 			#pragma vertex vert
 			#pragma geometry geo
 			#pragma fragment frag
 
+            #define RgbTextureWidth 1920
+            #define RgbTextureHeight 1080
 			
 			#include "UnityCG.cginc" 
             
             struct KinectPointData
             {
                 float3 pos;
-                float3 color;
+                float2 uv;
             };
 
             StructuredBuffer<KinectPointData> _SomePointsBuffer;
@@ -38,24 +42,27 @@
 				float4 pos : SV_Position;
                 float2 uv : TEXCOORD0;
 				float3 viewDir : TEXCOORD1;
-                float4 color : TEXCOORD2;
+                float cardSize : TEXCOORD2;
+                float baseDepth : TEXCOORD3;
 			};
 
 			struct g2f
 			{
 				float4 vertex : SV_POSITION;
-                float4 color : TEXCOORD2;
-                float2 uv : TEXCOORD0;
+                fixed4 color : TEXCOORD0;
                 float2 cardUv : TEXCOORD1;
 			};
 
             sampler2D _MainTex;
-			float _PointSize;
+            float _NearPointSize;
+            float _FarPointSize;
 			float _MaxDistance;
 			float _MinDistance;
 			float _MaxAng;
 			float _MinAng;
 			float _CardUvScale;
+
+            float4x4 _MasterTransform;
 
             float2 GetUvFromId(uint id)
             {
@@ -67,11 +74,10 @@
             v2g vert(uint meshId : SV_VertexID, uint instanceId : SV_InstanceID)
             {
                 KinectPointData pointData = _SomePointsBuffer[instanceId];
-                float4 color = float4(pointData.color, 1);
 				v2g o;
-                o.uv = GetUvFromId(instanceId);
-				o.pos = float4(pointData.pos, 1);
-				o.color = color;
+                o.uv = pointData.uv / float2(RgbTextureWidth, RgbTextureHeight);
+				o.pos = mul(_MasterTransform, float4(pointData.pos, 1));
+                o.baseDepth = pointData.pos.z;
 				o.viewDir = normalize(WorldSpaceViewDir(o.pos));
 				return o;
 			}
@@ -89,7 +95,8 @@
 			{
 				float4 vertBase = p[0].pos;
 				float4 vertBaseClip = UnityObjectToClipPos(vertBase);
-				float size = _PointSize;
+                float depth = (p[0].baseDepth - _MinDistance) / (_MaxDistance - _MinDistance);
+				float size = lerp(_NearPointSize, _FarPointSize, depth);
 
 				// Calc vert points
 				float4 leftScreenOffset = float4(size, 0, 0, 0);
@@ -102,9 +109,12 @@
 				float4 bottomVertA = leftScreenOffset + bottomScreenOffset + vertBaseClip;
 				float4 bottomVertB = rightScreenOffset + bottomScreenOffset + vertBaseClip;
 
+
+                fixed4 col = tex2Dlod(_MainTex, float4(p[0].uv, 0, 0));
+                fixed3 rgbCol = YuvToRgb(col.g, col.r, col.b);
+
 				g2f o;
-                o.color = p[0].color;
-                o.uv = p[0].uv;
+                o.color = fixed4(rgbCol, 1);
 				o.vertex = topVertB;
                 o.cardUv = float2(0, 0);
 				triStream.Append(o);
@@ -125,14 +135,6 @@
 			float4 frag (g2f i) : SV_Target
 			{
                 return i.color;
-                //clip(i.depthKey - .05);
-				float centerDist = length(abs(i.cardUv - .5)) * 2;
-				clip(-centerDist + 1);
-
-                fixed4 col = tex2D(_MainTex, i.uv);
-
-                fixed3 rgbCol = YuvToRgb(col.g, col.r, col.b);
-                return fixed4(rgbCol, 1);
 			}
 			ENDCG
 		}

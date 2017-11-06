@@ -66,7 +66,7 @@ namespace Microsoft.Samples.Kinect.ColorBasics
             this.colorSpaceDepthData = new ColorSpacePoint[rawDepth.Length];
 
             this.colorFrameDescription = this.kinectSensor.ColorFrameSource.CreateFrameDescription(ColorImageFormat.Bgra);
-            this.colorPixels = new byte[colorFrameDescription.Width * colorFrameDescription.Height * 4];
+            this.colorPixels = new byte[colorFrameDescription.Width * colorFrameDescription.Height * 2];
 
             this.depthBitmap = new WriteableBitmap(this.depthFrameDescription.Width, this.depthFrameDescription.Height, 96.0, 96.0, PixelFormats.Gray8, null);
 
@@ -81,7 +81,7 @@ namespace Microsoft.Samples.Kinect.ColorBasics
 
             this.DataContext = this;
 
-            this.communicationServer = new ServerCommunication(GetDataForNetwork);
+            this.communicationServer = new ServerCommunication(GetDepthDataForNetwork, GetRgbData);
             this.communicationServer.Start();
 
             MyIP = Dns.GetHostEntry(Dns.GetHostName()).AddressList[3].ToString();
@@ -152,8 +152,9 @@ namespace Microsoft.Samples.Kinect.ColorBasics
             {
                 if (colorFrame != null)
                 {
+                    colorFrame.CopyRawFrameDataToArray(colorPixels);
+
                     FrameDescription colorFrameDescription = colorFrame.FrameDescription;
-                    colorFrame.CopyConvertedFrameDataToArray(colorPixels, ColorImageFormat.Rgba);
 
                     using (KinectBuffer colorBuffer = colorFrame.LockRawImageBuffer())
                     {
@@ -244,8 +245,8 @@ namespace Microsoft.Samples.Kinect.ColorBasics
                                                             : Properties.Resources.SensorNotAvailableStatusText;
         }
 
-        private byte[] GetDataForNetwork()
-        {
+        private byte[] GetDepthDataForNetwork()
+        { 
             lock (rawDepth)
             {
                 this.kinectSensor.CoordinateMapper.MapDepthFrameToCameraSpace(rawDepth, cameraSpaceDepthData);
@@ -253,6 +254,13 @@ namespace Microsoft.Samples.Kinect.ColorBasics
 
                 IEnumerable<byte> cameraSpaceBytes = GetNetworkDataAsBytes(cameraSpaceDepthData, colorSpaceDepthData);
                 return cameraSpaceBytes.ToArray();
+            }
+        }
+        private byte[] GetRgbData()
+        {
+            lock (colorPixels)
+            {
+                return colorPixels;
             }
         }
 
@@ -270,39 +278,15 @@ namespace Microsoft.Samples.Kinect.ColorBasics
             }
         }
 
-        private int GetColorByteStartIndex(ColorSpacePoint colorPoint)
-        {
-            int x = (int)Math.Min(Math.Max(colorPoint.X, 0), this.colorFrameDescription.Width - 1);
-            int y = (int)Math.Min(Math.Max(colorPoint.Y, 0), this.colorFrameDescription.Height - 1);
-            int ret = (colorFrameDescription.Width * y + x) * 4;
-            return ret;
-        }
-
         private IEnumerable<byte> GetPixelData(int pixelIndex, CameraSpacePoint cameraPoint, ColorSpacePoint colorPoint)
         {
-            
-            IEnumerable<byte> positionPart = BitConverter.GetBytes(cameraPoint.X)
+            IEnumerable<byte> ret = BitConverter.GetBytes(cameraPoint.X)
             .Concat(BitConverter.GetBytes(cameraPoint.Y))
-            .Concat(BitConverter.GetBytes(cameraPoint.Z));
+            .Concat(BitConverter.GetBytes(cameraPoint.Z))
+            .Concat(BitConverter.GetBytes(colorPoint.X))
+            .Concat(BitConverter.GetBytes(colorPoint.Y));
 
-            int colorByeStartIndex = GetColorByteStartIndex(colorPoint);
-            byte r = colorPixels[colorByeStartIndex];
-            byte g = colorPixels[colorByeStartIndex + 1];
-            byte b = colorPixels[colorByeStartIndex + 2];
-
-            IEnumerable<byte> colorPart = ByteToFloatToBytes(r)
-            .Concat(ByteToFloatToBytes(g))
-            .Concat(ByteToFloatToBytes(b));
-
-            return positionPart.Concat(colorPart);
-        }
-
-        // Ridiculous hack because I can't use byte in shader code, but I can use float.
-        // So I convert the bytes to floats. And then to an array of bytes. Ugg I hate this.
-        private IEnumerable<byte> ByteToFloatToBytes(byte val)
-        {
-            float valAsFloat = (float)val / byte.MaxValue;
-            return BitConverter.GetBytes(valAsFloat);
+            return ret;
         }
     }
 }
