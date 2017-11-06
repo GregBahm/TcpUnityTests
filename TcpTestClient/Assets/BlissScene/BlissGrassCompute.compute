@@ -1,0 +1,64 @@
+﻿#pragma kernel WheatCompute
+
+struct FixedWheatData
+{
+	float2 PlanePos;
+	float2 PlaneTangent;
+};
+
+struct VariableWheatData
+{
+	float3 StalkNormal; 
+	float2 PlanarVelocity;
+};
+
+Texture2D _Noise;
+SamplerState sampler_Noise;
+
+StructuredBuffer<FixedWheatData> _FixedDataBuffer;
+RWStructuredBuffer<VariableWheatData> _VariableDataBuffer;
+
+float _Time;
+
+float _WindSpeed; // 50
+float _WindIntensity; // 5
+float _VelocityDecay; // 0.9
+float _StalkStiffness; // 15
+
+//#define _EffectorOuterRadius 100
+//#define _EffectorInnerRadius 10
+//#define _EffectorVelocityImpact 400
+//#define _WindSpeed 50
+//#define _WindIntensity 5
+//#define _VelocityDecay 0.9
+//#define _StalkStiffness 15
+
+float GetNoiseVal(float2 uvs)
+{
+	float base = _Noise.SampleLevel(sampler_Noise, uvs, 0).x * 2 - 1;
+	return base * _WindIntensity;
+}
+
+[numthreads(128,1,1)]
+void WheatCompute (uint3 id : SV_DispatchThreadID)
+{ 
+	FixedWheatData fixedData = _FixedDataBuffer[id.x];
+	VariableWheatData variableData = _VariableDataBuffer[id.x];
+
+	float2 xNoiseCoords = fixedData.PlanePos + float2(_Time / _WindSpeed, 0);
+	float2 yNoiseCoords = fixedData.PlanePos + float2(0, _Time / (2 * _WindSpeed));
+	float xNoiseVal = GetNoiseVal(xNoiseCoords);
+	float yNoiseVal = GetNoiseVal(yNoiseCoords);
+	float2 noise = float2(xNoiseVal, yNoiseVal);
+
+	float2 newPlanarVelocity = variableData.PlanarVelocity + noise;
+
+	newPlanarVelocity *= _VelocityDecay;
+	float3 newStalkNormal = variableData.StalkNormal + float3(newPlanarVelocity.x, _StalkStiffness, newPlanarVelocity.y);
+	newStalkNormal = normalize(newStalkNormal);
+
+	variableData.StalkNormal = newStalkNormal;
+	variableData.PlanarVelocity = newPlanarVelocity;
+
+	_VariableDataBuffer[id.x] = variableData;
+}

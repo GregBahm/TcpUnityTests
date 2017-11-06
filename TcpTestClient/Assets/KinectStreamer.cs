@@ -8,7 +8,7 @@ using System.Threading;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-public class MainScript : MonoBehaviour
+public class KinectStreamer : MonoBehaviour
 {
     public string IpAddress = "127.0.0.1";
     public int Port = 1990;
@@ -41,6 +41,7 @@ public class MainScript : MonoBehaviour
 
     private void Start()
     {
+        PointCloudMat = new Material(PointCloudMat);
         depthData = new byte[NetworkDataSize];
         depthDataSwapper = new byte[NetworkDataSize];
         pointsBuffer = new ComputeBuffer(PointsCount, PointsBufferStride);

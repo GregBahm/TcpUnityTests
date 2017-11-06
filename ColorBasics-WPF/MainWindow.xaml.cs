@@ -23,22 +23,22 @@ namespace Microsoft.Samples.Kinect.ColorBasics
         public string MyIP { get; set; }
 
         private const int MapDepthToByte = 8000 / 256;
-        
+
         private KinectSensor kinectSensor = null;
-        
+
         private ColorFrameReader colorFrameReader = null;
         private DepthFrameReader depthFrameReader = null;
-        
+
         private WriteableBitmap colorBitmap = null;
         private WriteableBitmap depthBitmap = null;
-        
+
         private FrameDescription depthFrameDescription = null;
         private FrameDescription colorFrameDescription;
 
         private byte[] colorPixels = null;
         private ushort[] rawDepth = null;
         private byte[] depthPixels = null;
-        
+
         CameraSpacePoint[] cameraSpaceDepthData;
         ColorSpacePoint[] colorSpaceDepthData;
 
@@ -49,7 +49,7 @@ namespace Microsoft.Samples.Kinect.ColorBasics
         public MainWindow()
         {
             this.kinectSensor = KinectSensor.GetDefault();
-            
+
             this.colorFrameReader = this.kinectSensor.ColorFrameSource.OpenReader();
             this.depthFrameReader = this.kinectSensor.DepthFrameSource.OpenReader();
 
@@ -90,7 +90,7 @@ namespace Microsoft.Samples.Kinect.ColorBasics
         }
 
         public event PropertyChangedEventHandler PropertyChanged;
-        
+
         public ImageSource ImageSource
         {
             get
@@ -106,7 +106,7 @@ namespace Microsoft.Samples.Kinect.ColorBasics
                 return this.depthBitmap;
             }
         }
-        
+
         public string StatusText
         {
             get
@@ -128,7 +128,7 @@ namespace Microsoft.Samples.Kinect.ColorBasics
                 }
             }
         }
-        
+
         private void MainWindow_Closing(object sender, CancelEventArgs e)
         {
             if (this.colorFrameReader != null)
@@ -144,7 +144,7 @@ namespace Microsoft.Samples.Kinect.ColorBasics
                 this.kinectSensor = null;
             }
         }
-        
+
         private void Reader_ColorFrameArrived(object sender, ColorFrameArrivedEventArgs e)
         {
             // ColorFrame is IDisposable
@@ -175,7 +175,7 @@ namespace Microsoft.Samples.Kinect.ColorBasics
                 }
             }
         }
-        
+
         private void Reader_FrameArrived(object sender, DepthFrameArrivedEventArgs e)
         {
             bool depthFrameProcessed = false;
@@ -211,7 +211,7 @@ namespace Microsoft.Samples.Kinect.ColorBasics
                 this.RenderDepthPixels();
             }
         }
-        
+
         private unsafe void ProcessDepthFrameData(IntPtr depthFrameData, uint depthFrameDataSize, ushort minDepth, ushort maxDepth)
         {
             // depth frame data is a 16 bit value
@@ -228,7 +228,7 @@ namespace Microsoft.Samples.Kinect.ColorBasics
                 this.depthPixels[i] = (byte)(depth >= minDepth && depth <= maxDepth ? (depth / MapDepthToByte) : 0);
             }
         }
-        
+
         private void RenderDepthPixels()
         {
             this.depthBitmap.WritePixels(
@@ -237,7 +237,7 @@ namespace Microsoft.Samples.Kinect.ColorBasics
                 this.depthBitmap.PixelWidth,
                 0);
         }
-        
+
         private void Sensor_IsAvailableChanged(object sender, IsAvailableChangedEventArgs e)
         {
             // on failure, set the status text
@@ -246,14 +246,13 @@ namespace Microsoft.Samples.Kinect.ColorBasics
         }
 
         private byte[] GetDepthDataForNetwork()
-        { 
+        {
             lock (rawDepth)
             {
                 this.kinectSensor.CoordinateMapper.MapDepthFrameToCameraSpace(rawDepth, cameraSpaceDepthData);
                 this.kinectSensor.CoordinateMapper.MapDepthFrameToColorSpace(rawDepth, colorSpaceDepthData);
 
-                IEnumerable<byte> cameraSpaceBytes = GetNetworkDataAsBytes(cameraSpaceDepthData, colorSpaceDepthData);
-                return cameraSpaceBytes.ToArray();
+                return GetNetworkDataAsBytes(cameraSpaceDepthData, colorSpaceDepthData);
             }
         }
         private byte[] GetRgbData()
@@ -264,29 +263,27 @@ namespace Microsoft.Samples.Kinect.ColorBasics
             }
         }
 
-        private IEnumerable<byte> GetNetworkDataAsBytes(CameraSpacePoint[] cameraSpaceData, ColorSpacePoint[] colorData)
+        private byte[] GetNetworkDataAsBytes(CameraSpacePoint[] cameraSpaceData, ColorSpacePoint[] colorData)
         {
+
+            byte[] pixelDataHolder = new byte[5 * sizeof(float) * colorData.Length];
             for (int i = 0; i < colorData.Length; i++)
             {
                 CameraSpacePoint cameraPoint = cameraSpaceData[i];
                 ColorSpacePoint colorPoint = colorData[i];
-                IEnumerable<byte> pixelData = GetPixelData(i, cameraPoint, colorPoint);
-                foreach (byte pieceOfThePuzzle in pixelData)
-                {
-                    yield return pieceOfThePuzzle;
-                }
+                GetPixelData(i, cameraPoint, colorPoint, pixelDataHolder, i * 5 * sizeof(float));
             }
+            return pixelDataHolder;
         }
 
-        private IEnumerable<byte> GetPixelData(int pixelIndex, CameraSpacePoint cameraPoint, ColorSpacePoint colorPoint)
+        private void GetPixelData(int pixelIndex, CameraSpacePoint cameraPoint, ColorSpacePoint colorPoint, byte[] pixelData, int startIdx)
         {
-            IEnumerable<byte> ret = BitConverter.GetBytes(cameraPoint.X)
-            .Concat(BitConverter.GetBytes(cameraPoint.Y))
-            .Concat(BitConverter.GetBytes(cameraPoint.Z))
-            .Concat(BitConverter.GetBytes(colorPoint.X))
-            .Concat(BitConverter.GetBytes(colorPoint.Y));
 
-            return ret;
+            Array.Copy(BitConverter.GetBytes(cameraPoint.X), 0, pixelData, startIdx + 0 * sizeof(float), sizeof(float));
+            Array.Copy(BitConverter.GetBytes(cameraPoint.Y), 0, pixelData, startIdx + 1 * sizeof(float), sizeof(float));
+            Array.Copy(BitConverter.GetBytes(cameraPoint.Z), 0, pixelData, startIdx + 2 * sizeof(float), sizeof(float));
+            Array.Copy(BitConverter.GetBytes(colorPoint.X), 0, pixelData, startIdx + 3 * sizeof(float), sizeof(float));
+            Array.Copy(BitConverter.GetBytes(colorPoint.Y), 0, pixelData, startIdx + 4 * sizeof(float), sizeof(float));
         }
     }
 }
