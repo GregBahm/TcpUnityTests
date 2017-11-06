@@ -136,11 +136,11 @@ MonoBehaviour:
   m_GameObject: {fileID: 62145393}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: d4d9d9ca3fba9df469098436deadf48e, type: 3}
+  m_Script: {fileID: 11500000, guid: c14e35e560e3a91418e6fa4d2f1ca692, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
   IpAddress: 127.0.0.1
-  PointCloudMat: {fileID: 2100000, guid: 788ca70a64421a64193b48ad4000db45, type: 2}
+  PointCloudMat: {fileID: 2100000, guid: dc91a3010932d6f4188fe9b0a7f4aee8, type: 2}
 --- !u!4 &62145395
 Transform:
   m_ObjectHideFlags: 0
@@ -213,7 +213,7 @@ Transform:
   m_PrefabInternal: {fileID: 0}
   m_GameObject: {fileID: 797512203}
   m_LocalRotation: {x: 0.40821788, y: -0.23456968, z: 0.10938163, w: 0.8754261}
-  m_LocalPosition: {x: 0, y: 3, z: 0}
+  m_LocalPosition: {x: 0.198, y: 3, z: 0.114}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 0}

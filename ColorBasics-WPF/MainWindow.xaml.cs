@@ -66,7 +66,7 @@ namespace Microsoft.Samples.Kinect.ColorBasics
             this.colorSpaceDepthData = new ColorSpacePoint[rawDepth.Length];
 
             this.colorFrameDescription = this.kinectSensor.ColorFrameSource.CreateFrameDescription(ColorImageFormat.Bgra);
-            this.colorPixels = new byte[colorFrameDescription.Width * colorFrameDescription.Height * 2];
+            this.colorPixels = new byte[colorFrameDescription.Width * colorFrameDescription.Height * 4];
 
             this.depthBitmap = new WriteableBitmap(this.depthFrameDescription.Width, this.depthFrameDescription.Height, 96.0, 96.0, PixelFormats.Gray8, null);
 
@@ -153,7 +153,7 @@ namespace Microsoft.Samples.Kinect.ColorBasics
                 if (colorFrame != null)
                 {
                     FrameDescription colorFrameDescription = colorFrame.FrameDescription;
-                    colorFrame.CopyRawFrameDataToArray(colorPixels);
+                    colorFrame.CopyConvertedFrameDataToArray(colorPixels, ColorImageFormat.Rgba);
 
                     using (KinectBuffer colorBuffer = colorFrame.LockRawImageBuffer())
                     {
@@ -251,49 +251,58 @@ namespace Microsoft.Samples.Kinect.ColorBasics
                 this.kinectSensor.CoordinateMapper.MapDepthFrameToCameraSpace(rawDepth, cameraSpaceDepthData);
                 this.kinectSensor.CoordinateMapper.MapDepthFrameToColorSpace(rawDepth, colorSpaceDepthData);
 
-                IEnumerable<byte> cameraSpaceBytes = GetNetworkDataAsBytes(cameraSpaceDepthData);
-                byte[] colorByteData = GetColorData(colorSpaceDepthData).ToArray();
-
-                //return cameraSpaceBytes;
-                return cameraSpaceBytes.Concat(colorByteData).ToArray();
+                IEnumerable<byte> cameraSpaceBytes = GetNetworkDataAsBytes(cameraSpaceDepthData, colorSpaceDepthData);
+                return cameraSpaceBytes.ToArray();
             }
         }
 
-        private IEnumerable<byte> GetColorData(ColorSpacePoint[] colorData)
+        private IEnumerable<byte> GetNetworkDataAsBytes(CameraSpacePoint[] cameraSpaceData, ColorSpacePoint[] colorData)
         {
             for (int i = 0; i < colorData.Length; i++)
             {
+                CameraSpacePoint cameraPoint = cameraSpaceData[i];
                 ColorSpacePoint colorPoint = colorData[i];
-                int colorByeStartIndex = GetColorByteStartIndex(colorPoint);
-                yield return colorPixels[colorByeStartIndex];
-                yield return colorPixels[colorByeStartIndex + 1];
+                IEnumerable<byte> pixelData = GetPixelData(i, cameraPoint, colorPoint);
+                foreach (byte pieceOfThePuzzle in pixelData)
+                {
+                    yield return pieceOfThePuzzle;
+                }
             }
         }
 
         private int GetColorByteStartIndex(ColorSpacePoint colorPoint)
         {
-            int x = (int)colorPoint.X;
-            int y = (int)colorPoint.Y;
-            return (colorFrameDescription.Height * x + y) * 2;
+            int x = (int)Math.Min(Math.Max(colorPoint.X, 0), this.colorFrameDescription.Width - 1);
+            int y = (int)Math.Min(Math.Max(colorPoint.Y, 0), this.colorFrameDescription.Height - 1);
+            int ret = (colorFrameDescription.Width * y + x) * 4;
+            return ret;
         }
 
-        private IEnumerable<byte> GetNetworkDataAsBytes(CameraSpacePoint[] cameraSpaceData)
+        private IEnumerable<byte> GetPixelData(int pixelIndex, CameraSpacePoint cameraPoint, ColorSpacePoint colorPoint)
         {
-            foreach (CameraSpacePoint item in cameraSpaceData)
-            {
-                foreach (byte xByte in BitConverter.GetBytes(item.X))
-                {
-                    yield return xByte;
-                }
-                foreach (byte yByte in BitConverter.GetBytes(item.Y))
-                {
-                    yield return yByte;
-                }
-                foreach (byte zByte in BitConverter.GetBytes(item.Z))
-                {
-                    yield return zByte;
-                }
-            }
+            
+            IEnumerable<byte> positionPart = BitConverter.GetBytes(cameraPoint.X)
+            .Concat(BitConverter.GetBytes(cameraPoint.Y))
+            .Concat(BitConverter.GetBytes(cameraPoint.Z));
+
+            int colorByeStartIndex = GetColorByteStartIndex(colorPoint);
+            byte r = colorPixels[colorByeStartIndex];
+            byte g = colorPixels[colorByeStartIndex + 1];
+            byte b = colorPixels[colorByeStartIndex + 2];
+
+            IEnumerable<byte> colorPart = ByteToFloatToBytes(r)
+            .Concat(ByteToFloatToBytes(g))
+            .Concat(ByteToFloatToBytes(b));
+
+            return positionPart.Concat(colorPart);
+        }
+
+        // Ridiculous hack because I can't use byte in shader code, but I can use float.
+        // So I convert the bytes to floats. And then to an array of bytes. Ugg I hate this.
+        private IEnumerable<byte> ByteToFloatToBytes(byte val)
+        {
+            float valAsFloat = (float)val / byte.MaxValue;
+            return BitConverter.GetBytes(valAsFloat);
         }
     }
 }

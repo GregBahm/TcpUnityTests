@@ -24,19 +24,27 @@
 
 			
 			#include "UnityCG.cginc" 
+            
+            struct KinectPointData
+            {
+                float3 pos;
+                float3 color;
+            };
 
-            StructuredBuffer<float3> _SomePointsBuffer;
+            StructuredBuffer<KinectPointData> _SomePointsBuffer;
 
 			struct v2g
 			{
-				float4 rawVert : SV_Position;
+				float4 pos : SV_Position;
                 float2 uv : TEXCOORD0;
 				float3 viewDir : TEXCOORD1;
+                float4 color : TEXCOORD2;
 			};
 
 			struct g2f
 			{
 				float4 vertex : SV_POSITION;
+                float4 color : TEXCOORD2;
                 float2 uv : TEXCOORD0;
                 float2 cardUv : TEXCOORD1;
 			};
@@ -58,10 +66,13 @@
 
             v2g vert(uint meshId : SV_VertexID, uint instanceId : SV_InstanceID)
             {
+                KinectPointData pointData = _SomePointsBuffer[instanceId];
+                float4 color = float4(pointData.color, 1);
 				v2g o;
                 o.uv = GetUvFromId(instanceId);
-				o.rawVert = float4(_SomePointsBuffer[instanceId], 1);
-				o.viewDir = normalize(WorldSpaceViewDir(o.rawVert));
+				o.pos = float4(pointData.pos, 1);
+				o.color = color;
+				o.viewDir = normalize(WorldSpaceViewDir(o.pos));
 				return o;
 			}
 
@@ -76,7 +87,7 @@
 			[maxvertexcount(4)]
 			void geo(point v2g p[1], inout TriangleStream<g2f> triStream)
 			{
-				float4 vertBase = p[0].rawVert;
+				float4 vertBase = p[0].pos;
 				float4 vertBaseClip = UnityObjectToClipPos(vertBase);
 				float size = _PointSize;
 
@@ -84,7 +95,7 @@
 				float4 leftScreenOffset = float4(size, 0, 0, 0);
 				float4 rightScreenOffset = float4(-size, 0, 0, 0);
 				float4 topScreenOffset = float4(0, -size, 0, 0);
-				float4 bottomScreenOffset = float4(0, size, 0, 0);
+				float4 bottomScreenOffset = float4(0, size, 0, 0); 
 
 				float4 topVertA = leftScreenOffset + topScreenOffset + vertBaseClip;
 				float4 topVertB = rightScreenOffset + topScreenOffset + vertBaseClip;
@@ -92,6 +103,7 @@
 				float4 bottomVertB = rightScreenOffset + bottomScreenOffset + vertBaseClip;
 
 				g2f o;
+                o.color = p[0].color;
                 o.uv = p[0].uv;
 				o.vertex = topVertB;
                 o.cardUv = float2(0, 0);
@@ -110,8 +122,9 @@
 				triStream.Append(o);
 			}
 			
-			fixed4 frag (g2f i) : SV_Target
+			float4 frag (g2f i) : SV_Target
 			{
+                return i.color;
                 //clip(i.depthKey - .05);
 				float centerDist = length(abs(i.cardUv - .5)) * 2;
 				clip(-centerDist + 1);

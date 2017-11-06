@@ -37,16 +37,9 @@ namespace Microsoft.Samples.Kinect.ColorBasics
         
         private void OnConnected(TcpClient client)
         {
-            try
-            {
-                NetworkStream stream = client.GetStream();
-                byte[] cameraSpaceBytes = networkDataGetter();
-                stream.Write(cameraSpaceBytes, 0, cameraSpaceBytes.Length);
-            }
-            catch
-            {
-                Console.WriteLine("Connection broke");
-            }
+            NetworkStream stream = client.GetStream();
+            byte[] cameraSpaceBytes = networkDataGetter();
+            stream.Write(cameraSpaceBytes, 0, cameraSpaceBytes.Length);
         }
     }
 }
