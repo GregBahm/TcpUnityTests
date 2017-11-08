@@ -11,6 +11,8 @@ using UnityEngine.Rendering;
 
 public class KinectStreamer : MonoBehaviour
 {
+    public bool ShowStreamPoints = true;
+
     public string IpAddress = "127.0.0.1";
     public int Port = 1990;
 
@@ -20,16 +22,20 @@ public class KinectStreamer : MonoBehaviour
 
     private byte[] depthData;
     private byte[] depthDataSwapper;
+    private byte[] infraredData;
+    private byte[] infraredDataSwapper;
     private byte[] depthTableData;
     private byte[] depthTableDataSwapper;
     public Texture2D depthTexture;
+    public Texture2D infraredTexture;
 
     private ComputeBuffer depthTableBuffer;
     private const int DepthTableStride = sizeof(float) * 2;
-    
+
     private const int DepthTextureWidth = 512;
     private const int DepthTextureHeight = 424;
     private const int DepthPointsCount = DepthTextureWidth * DepthTextureHeight;
+    private const int DepthTextureSize = DepthPointsCount * 2;
     private const int DepthTableSize = DepthPointsCount * DepthTableStride;
 
     private bool depthTableLoaded;
@@ -41,16 +47,24 @@ public class KinectStreamer : MonoBehaviour
     private void Start()
     {
         PointCloudMat = new Material(PointCloudMat);
-        depthData = new byte[DepthPointsCount];
-        depthDataSwapper = new byte[DepthPointsCount];
 
         depthTableData = new byte[DepthTableSize];
         depthTableDataSwapper = new byte[DepthTableSize];
         depthTableBuffer = new ComputeBuffer(DepthPointsCount, DepthTableStride);
 
-        depthTexture = new Texture2D(DepthTextureWidth, DepthTextureHeight, TextureFormat.R8, false, true);
+        depthData = new byte[DepthTextureSize];
+        depthDataSwapper = new byte[DepthTextureSize];
+
+        infraredData = new byte[DepthPointsCount];
+        infraredDataSwapper = new byte[DepthPointsCount];
+
+        depthTexture = new Texture2D(DepthTextureWidth, DepthTextureHeight, TextureFormat.R16, false, true);
         depthTexture.wrapMode = TextureWrapMode.Clamp;
         depthTexture.filterMode = FilterMode.Point;
+
+        infraredTexture = new Texture2D(DepthTextureWidth, DepthTextureHeight, TextureFormat.R8, false, true);
+        infraredTexture.wrapMode = TextureWrapMode.Clamp;
+        infraredTexture.filterMode = FilterMode.Point;
 
         thread = new Thread(() => ReadNetworkData());
         thread.IsBackground = true;
@@ -79,8 +93,11 @@ public class KinectStreamer : MonoBehaviour
 
     private void OnRenderObject()
     {
-        PointCloudMat.SetPass(0);
-        Graphics.DrawProcedural(MeshTopology.Points, 1, DepthPointsCount);
+        if(ShowStreamPoints)
+        {
+            PointCloudMat.SetPass(0);
+            Graphics.DrawProcedural(MeshTopology.Points, 1, DepthPointsCount);
+        }
     }
 
     private void GetSourceData()
@@ -89,8 +106,14 @@ public class KinectStreamer : MonoBehaviour
         {
             depthTexture.LoadRawTextureData(depthDataSwapper);
         }
+        lock (infraredDataSwapper)
+        {
+            infraredTexture.LoadRawTextureData(infraredDataSwapper);
+        }
         depthTexture.Apply();
+        infraredTexture.Apply();
         PointCloudMat.SetTexture("_DepthTex", depthTexture);
+        PointCloudMat.SetTexture("_InfraredTex", infraredTexture);
     }
 
     private void OnDestroy()
@@ -131,15 +154,26 @@ public class KinectStreamer : MonoBehaviour
                         threadTimer.Start();
 
                         offset = 0;
-                        while (offset < DepthPointsCount)
+                        while (offset < DepthTextureSize)
                         {
                             offset += stream.Read(depthData, offset, depthData.Length - offset);
+                        }
+
+                        offset = 0;
+                        while (offset < DepthPointsCount)
+                        {
+                            offset += stream.Read(infraredData, offset, infraredData.Length - offset);
                         }
 
 
                         lock (depthDataSwapper)
                         {
                             depthDataSwapper = depthData;
+                        }
+
+                        lock (infraredDataSwapper)
+                        {
+                            infraredDataSwapper = infraredData;
                         }
 
                         ThreadFPS = 1.0f / (float)threadTimer.Elapsed.TotalSeconds;

@@ -35,15 +35,18 @@
 				float3 viewDir : TEXCOORD1;
                 float cardSize : TEXCOORD2;
                 float baseDepth : TEXCOORD3;
+                float infraredVal : TEXCOORD4;
 			};
 
 			struct g2f
 			{
 				float4 vertex : SV_POSITION;
                 float2 cardUv : TEXCOORD1;
+                float3 color : TEXCOORD4;
 			};
 
             sampler2D _DepthTex;
+            sampler2D _InfraredTex;
             float _NearPointSize;
             float _FarPointSize;
 			float _MaxDistance;
@@ -64,11 +67,13 @@
             v2g vert(uint meshId : SV_VertexID, uint instanceId : SV_InstanceID)
             {
                 float2 uvsFromId = GetUvFromId(instanceId);
-                float depthVal = tex2Dlod(_DepthTex, float4(uvsFromId, 0, 0));
+                float depthVal = tex2Dlod(_DepthTex, float4(uvsFromId, 0, 0)).x;
+                float infraredVal = tex2Dlod(_InfraredTex, float4(uvsFromId, 0, 0)).x;
                 float2 xyVal = _DepthTable[instanceId] * depthVal;
-
                 float3 basePos = float3(xyVal, depthVal);
+
 				v2g o;
+                o.infraredVal = infraredVal;
 				o.pos = mul(_MasterTransform, float4(basePos, 1));
                 o.baseDepth = depthVal;
 				o.viewDir = normalize(WorldSpaceViewDir(o.pos));
@@ -95,6 +100,11 @@
 				float4 bottomVertB = rightScreenOffset + bottomScreenOffset + vertBaseClip;
 
 				g2f o;
+
+                float3 nearColor = p[0].infraredVal * 3;
+                float3 farColor = lerp(float3(0, .1, .2), 3, p[0].infraredVal);
+                float3 color = lerp(nearColor, farColor, p[0].baseDepth);
+                o.color = pow(color * 2, 2);
 				o.vertex = topVertB;
                 o.cardUv = float2(0, 0);
 				triStream.Append(o);
@@ -112,9 +122,9 @@
 				triStream.Append(o);
 			}
 			
-			float4 frag (g2f i) : SV_Target
+			fixed4 frag (g2f i) : SV_Target
 			{
-                return 1;
+                return fixed4(i.color, 1);
 			}
 			ENDCG
 		}

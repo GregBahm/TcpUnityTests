@@ -22,19 +22,30 @@ namespace Microsoft.Samples.Kinect.ColorBasics
     {
         public string MyIP { get; set; }
 
+        private const float InfraredSourceValueMaximum = (float)ushort.MaxValue;
+        private const float InfraredSourceScale = 0.75f;
+        private const float InfraredOutputValueMinimum = 0.01f;
+        private const float InfraredOutputValueMaximum = 1.0f;
+
         private const int MapDepthToByte = 8000 / 256;
 
         private KinectSensor kinectSensor = null;
 
         private ColorFrameReader colorFrameReader = null;
         private DepthFrameReader depthFrameReader = null;
+        private InfraredFrameReader infraredFrameReader = null;
 
         private WriteableBitmap colorBitmap = null;
         private WriteableBitmap depthBitmap = null;
+        private WriteableBitmap infraredBitmap = null;
 
         private FrameDescription depthFrameDescription = null;
-        private FrameDescription colorFrameDescription;
-        
+        private FrameDescription colorFrameDescription = null;
+        private FrameDescription infraredFrameDescription = null;
+
+        private byte[] rawDepthPixels = null;
+        private byte[] infraredPixels = null;
+
         private byte[] depthPixels = null;
         
         private string statusText = null;
@@ -45,22 +56,27 @@ namespace Microsoft.Samples.Kinect.ColorBasics
         {
             this.kinectSensor = KinectSensor.GetDefault();
 
-            this.colorFrameReader = this.kinectSensor.ColorFrameSource.OpenReader();
+            //this.colorFrameReader = this.kinectSensor.ColorFrameSource.OpenReader();
             this.depthFrameReader = this.kinectSensor.DepthFrameSource.OpenReader();
+            this.infraredFrameReader = this.kinectSensor.InfraredFrameSource.OpenReader();
 
-            this.colorFrameReader.FrameArrived += this.Reader_ColorFrameArrived;
-
-            this.depthFrameReader.FrameArrived += this.Reader_FrameArrived;
+            //this.colorFrameReader.FrameArrived += this.Reader_ColorFrameArrived;
+            this.depthFrameReader.FrameArrived += this.Reader_DepthFrameArrived;
+            this.infraredFrameReader.FrameArrived += this.Reader_InfraredFrameArrived;
 
             this.depthFrameDescription = this.kinectSensor.DepthFrameSource.FrameDescription;
+            this.infraredFrameDescription = this.kinectSensor.InfraredFrameSource.FrameDescription;
+            this.infraredFrameDescription = this.kinectSensor.InfraredFrameSource.FrameDescription;
 
             this.depthPixels = new byte[this.depthFrameDescription.Width * this.depthFrameDescription.Height];
+            this.rawDepthPixels = new byte[this.depthFrameDescription.Width * this.depthFrameDescription.Height * 2];
+            this.infraredPixels = new byte[this.depthFrameDescription.Width * this.depthFrameDescription.Height];
             
             this.colorFrameDescription = this.kinectSensor.ColorFrameSource.CreateFrameDescription(ColorImageFormat.Bgra);
 
             this.depthBitmap = new WriteableBitmap(this.depthFrameDescription.Width, this.depthFrameDescription.Height, 96.0, 96.0, PixelFormats.Gray8, null);
-
             this.colorBitmap = new WriteableBitmap(colorFrameDescription.Width, colorFrameDescription.Height, 96.0, 96.0, PixelFormats.Bgr32, null);
+            this.infraredBitmap = new WriteableBitmap(this.infraredFrameDescription.Width, this.infraredFrameDescription.Height, 96.0, 96.0, PixelFormats.Gray32Float, null);
 
             this.kinectSensor.IsAvailableChanged += this.Sensor_IsAvailableChanged;
 
@@ -71,7 +87,7 @@ namespace Microsoft.Samples.Kinect.ColorBasics
 
             this.DataContext = this;
 
-            this.communicationServer = new ServerCommunication(GetDepthDataForNetwork, GetDepthTableForNetwork);
+            this.communicationServer = new ServerCommunication(GetDepthDataForNetwork, GetInfraredDataForNetwork, GetDepthTableForNetwork);
             this.communicationServer.Start();
 
             MyIP = Dns.GetHostEntry(Dns.GetHostName()).AddressList[3].ToString();
@@ -85,7 +101,7 @@ namespace Microsoft.Samples.Kinect.ColorBasics
         {
             get
             {
-                return this.colorBitmap;
+                return this.infraredBitmap;
             }
         }
 
@@ -164,7 +180,7 @@ namespace Microsoft.Samples.Kinect.ColorBasics
             }
         }
 
-        private void Reader_FrameArrived(object sender, DepthFrameArrivedEventArgs e)
+        private void Reader_DepthFrameArrived(object sender, DepthFrameArrivedEventArgs e)
         {
             bool depthFrameProcessed = false;
 
@@ -200,6 +216,56 @@ namespace Microsoft.Samples.Kinect.ColorBasics
             }
         }
 
+        private void Reader_InfraredFrameArrived(object sender, InfraredFrameArrivedEventArgs e)
+        {
+            // InfraredFrame is IDisposable
+            using (InfraredFrame infraredFrame = e.FrameReference.AcquireFrame())
+            {
+                if (infraredFrame != null)
+                {
+                    // the fastest way to process the infrared frame data is to directly access 
+                    // the underlying buffer
+                    using (Microsoft.Kinect.KinectBuffer infraredBuffer = infraredFrame.LockImageBuffer())
+                    {
+                        // verify data and write the new infrared frame data to the display bitmap
+                        if (((this.infraredFrameDescription.Width * this.infraredFrameDescription.Height) == (infraredBuffer.Size / this.infraredFrameDescription.BytesPerPixel)) &&
+                            (this.infraredFrameDescription.Width == this.infraredBitmap.PixelWidth) && (this.infraredFrameDescription.Height == this.infraredBitmap.PixelHeight))
+                        {
+                            this.ProcessInfraredFrameData(infraredBuffer.UnderlyingBuffer, infraredBuffer.Size);
+                        }
+                    }
+                }
+            }
+        }
+
+        private unsafe void ProcessInfraredFrameData(IntPtr infraredFrameData, uint infraredFrameDataSize)
+        {
+            // infrared frame data is a 16 bit value
+            ushort* frameData = (ushort*)infraredFrameData;
+
+            // lock the target bitmap
+            this.infraredBitmap.Lock();
+
+            // get the pointer to the bitmap's back buffer
+            float* backBuffer = (float*)this.infraredBitmap.BackBuffer;
+
+            // process the infrared data
+            for (int i = 0; i < (int)(infraredFrameDataSize / this.infraredFrameDescription.BytesPerPixel); ++i)
+            {
+                // since we are displaying the image as a normalized grey scale image, we need to convert from
+                // the ushort data (as provided by the InfraredFrame) to a value from [InfraredOutputValueMinimum, InfraredOutputValueMaximum]
+                float infraredVal = Math.Min(InfraredOutputValueMaximum, (((float)frameData[i] / InfraredSourceValueMaximum * InfraredSourceScale) * (1.0f - InfraredOutputValueMinimum)) + InfraredOutputValueMinimum);
+                backBuffer[i] = infraredVal;
+                this.infraredPixels[i] = (byte)(infraredVal * byte.MaxValue);
+            }
+
+            // mark the entire bitmap as needing to be drawn
+            this.infraredBitmap.AddDirtyRect(new Int32Rect(0, 0, this.infraredBitmap.PixelWidth, this.infraredBitmap.PixelHeight));
+
+            // unlock the bitmap
+            this.infraredBitmap.Unlock();
+        }
+
         private unsafe void ProcessDepthFrameData(IntPtr depthFrameData, uint depthFrameDataSize, ushort minDepth, ushort maxDepth)
         {
             // depth frame data is a 16 bit value
@@ -213,7 +279,9 @@ namespace Microsoft.Samples.Kinect.ColorBasics
 
                 // To convert to a byte, we're mapping the depth value to the byte range.
                 // Values outside the reliable depth range are mapped to 0 (black).
-                this.depthPixels[i] = (byte)(depth >= minDepth && depth <= maxDepth ? (depth / MapDepthToByte) : 0);
+                byte depthPixel = (byte)(depth >= minDepth && depth <= maxDepth ? (depth / MapDepthToByte) : 0);
+                this.depthPixels[i] = depthPixel;
+                Array.Copy(BitConverter.GetBytes(depth), 0, this.rawDepthPixels, i * 2, 2);
             }
         }
 
@@ -251,9 +319,16 @@ namespace Microsoft.Samples.Kinect.ColorBasics
 
         private byte[] GetDepthDataForNetwork()
         {
-            lock (depthPixels)
+            lock (rawDepthPixels)
             {
-                return depthPixels;
+                return rawDepthPixels;
+            }
+        }
+        private byte[] GetInfraredDataForNetwork()
+        {
+            lock (infraredPixels)
+            {
+                return infraredPixels;
             }
         }
     }
