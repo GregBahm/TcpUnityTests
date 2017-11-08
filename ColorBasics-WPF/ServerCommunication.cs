@@ -14,12 +14,12 @@ namespace Microsoft.Samples.Kinect.ColorBasics
         private TcpListener server;
 
         private readonly Func<Byte[]> depthDataGetter;
-        private readonly Func<Byte[]> rgbDataGetter;
+        private readonly Func<Byte[]> depthTableGetter;
 
-        public ServerCommunication(Func<Byte[]> depthDataGetter, Func<Byte[]> rgbDataGetter)
+        public ServerCommunication(Func<Byte[]> depthDataGetter, Func<Byte[]> depthTableGetter)
         {
             this.depthDataGetter = depthDataGetter;
-            this.rgbDataGetter = rgbDataGetter;
+            this.depthTableGetter = depthTableGetter;
         }
 
         public async void Start()
@@ -38,21 +38,22 @@ namespace Microsoft.Samples.Kinect.ColorBasics
         private void OnConnected(TcpClient client)
         {
             NetworkStream stream = client.GetStream();
+
+            byte[] tableData = depthTableGetter();
+            stream.Write(tableData, 0, tableData.Length);
+
             while (client.Connected)
             {
-                // Send the data
-                byte[] cameraSpaceBytes = depthDataGetter();
-                stream.Write(cameraSpaceBytes, 0, cameraSpaceBytes.Length);
-                byte[] rgbTextureBytes = rgbDataGetter();
-                stream.Write(rgbTextureBytes, 0, rgbTextureBytes.Length);
-
-                // Wait for request for more data
+                byte[] depthBytes = depthDataGetter();
+                stream.Write(depthBytes, 0, depthBytes.Length);
+                //byte[] rgbTextureBytes = rgbDataGetter();
+                //stream.Write(rgbTextureBytes, 0, rgbTextureBytes.Length);
+                
                 while (!stream.DataAvailable && client.Connected)
                 {
                     System.Threading.Thread.Sleep(1);
                 }
-
-                // Read out the data
+                
                 if (client.Connected)
                 {
                     while (stream.DataAvailable)

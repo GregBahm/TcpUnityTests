@@ -20,34 +20,37 @@ public class KinectStreamer : MonoBehaviour
 
     private byte[] depthData;
     private byte[] depthDataSwapper;
-    private byte[] rgbData;
-    private byte[] rgbDataSwapper;
+    private byte[] depthTableData;
+    private byte[] depthTableDataSwapper;
+    public Texture2D depthTexture;
 
-    private ComputeBuffer pointsBuffer;
+    private ComputeBuffer depthTableBuffer;
+    private const int DepthTableStride = sizeof(float) * 2;
+    
     private const int DepthTextureWidth = 512;
     private const int DepthTextureHeight = 424;
-    private const int PointsCount = DepthTextureWidth * DepthTextureHeight;
-    private const int RgbImageBytesCount = DepthTextureWidth * DepthTextureHeight * 2;
-    private const int PointsBufferStride = sizeof(float) * 3 /* Pos */ + sizeof(float) * 2; /* Color Uvs*/
-    private const int NetworkDataSize = PointsCount * PointsBufferStride;
+    private const int DepthPointsCount = DepthTextureWidth * DepthTextureHeight;
+    private const int DepthTableSize = DepthPointsCount * DepthTableStride;
 
-    private const int RgbTextureWidth = 1920;
-    private const int RgbTextureHeight = 1080;
-    private const int RgbImageSize = RgbTextureWidth * RgbTextureHeight * 2;
+    private bool depthTableLoaded;
+    private bool depthTableSet;
 
     private Thread thread;
-
     public float ThreadFPS;
 
     private void Start()
     {
         PointCloudMat = new Material(PointCloudMat);
-        depthData = new byte[NetworkDataSize];
-        depthDataSwapper = new byte[NetworkDataSize];
-        pointsBuffer = new ComputeBuffer(PointsCount, PointsBufferStride);
-        rgbData = new byte[RgbImageSize];
-        rgbDataSwapper = new byte[RgbImageSize];
-        rgbTexture = new Texture2D(RgbTextureWidth, RgbTextureHeight, TextureFormat.YUY2, false);
+        depthData = new byte[DepthPointsCount];
+        depthDataSwapper = new byte[DepthPointsCount];
+
+        depthTableData = new byte[DepthTableSize];
+        depthTableDataSwapper = new byte[DepthTableSize];
+        depthTableBuffer = new ComputeBuffer(DepthPointsCount, DepthTableStride);
+
+        depthTexture = new Texture2D(DepthTextureWidth, DepthTextureHeight, TextureFormat.R8, false, true);
+        depthTexture.wrapMode = TextureWrapMode.Clamp;
+        depthTexture.filterMode = FilterMode.Point;
 
         thread = new Thread(() => ReadNetworkData());
         thread.IsBackground = true;
@@ -56,34 +59,43 @@ public class KinectStreamer : MonoBehaviour
 
     private void Update()
     {
+        if(depthTableLoaded && !depthTableSet)
+        {
+            TryLoadDepthTable();
+        }
         GetSourceData();
         PointCloudMat.SetMatrix("_MasterTransform", transform.localToWorldMatrix);
-        PointCloudMat.SetBuffer("_SomePointsBuffer", pointsBuffer);
+        PointCloudMat.SetBuffer("_DepthTable", depthTableBuffer);
+    }
+
+    private void TryLoadDepthTable()
+    {
+        lock (depthTableDataSwapper)
+        {
+            depthTableBuffer.SetData(depthTableDataSwapper);
+        }
+        depthTableSet = true;
     }
 
     private void OnRenderObject()
     {
         PointCloudMat.SetPass(0);
-        Graphics.DrawProcedural(MeshTopology.Points, 1, PointsCount);
+        Graphics.DrawProcedural(MeshTopology.Points, 1, DepthPointsCount);
     }
 
     private void GetSourceData()
     {
         lock (depthDataSwapper)
         {
-            pointsBuffer.SetData(depthDataSwapper);
+            depthTexture.LoadRawTextureData(depthDataSwapper);
         }
-        lock (rgbDataSwapper)
-        {
-            rgbTexture.LoadRawTextureData(rgbDataSwapper);
-        }
-        rgbTexture.Apply();
-        PointCloudMat.SetTexture("_MainTex", rgbTexture);
+        depthTexture.Apply();
+        PointCloudMat.SetTexture("_DepthTex", depthTexture);
     }
 
     private void OnDestroy()
     {
-        pointsBuffer.Release();
+        depthTableBuffer.Release();
         thread.Abort();
     }
 
@@ -100,19 +112,28 @@ public class KinectStreamer : MonoBehaviour
                 using (NetworkStream stream = client.GetStream())
                 {
 
+
+                    int offset = 0;
+                    while (offset < DepthTableSize)
+                    {
+                        offset += stream.Read(depthTableData, offset, depthTableData.Length - offset);
+                    }
+
+                    lock (depthTableDataSwapper)
+                    {
+                        depthTableDataSwapper = depthTableData;
+                    }
+
+                    depthTableLoaded = true;
+
                     while (client.Connected)
                     {
                         threadTimer.Start();
 
-                        int offset = 0;
-                        while (offset < NetworkDataSize)
+                        offset = 0;
+                        while (offset < DepthPointsCount)
                         {
                             offset += stream.Read(depthData, offset, depthData.Length - offset);
-                        }
-                        offset = 0;
-                        while (offset < RgbImageSize)
-                        {
-                            offset += stream.Read(rgbData, offset, rgbData.Length - offset);
                         }
 
 
@@ -120,15 +141,10 @@ public class KinectStreamer : MonoBehaviour
                         {
                             depthDataSwapper = depthData;
                         }
-                        lock (rgbDataSwapper)
-                        {
-                            rgbDataSwapper = rgbData;
-                        }
 
                         ThreadFPS = 1.0f / (float)threadTimer.Elapsed.TotalSeconds;
                         threadTimer.Reset();
-
-                        // Ask for more data
+                        
                         stream.WriteByte(0);
 
                     } // END client.connected

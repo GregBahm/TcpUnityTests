@@ -23,19 +23,10 @@
 			#pragma vertex vert
 			#pragma geometry geo
 			#pragma fragment frag
-
-            #define RgbTextureWidth 1920
-            #define RgbTextureHeight 1080
 			
 			#include "UnityCG.cginc" 
             
-            struct KinectPointData
-            {
-                float3 pos;
-                float2 uv;
-            };
-
-            StructuredBuffer<KinectPointData> _SomePointsBuffer;
+            StructuredBuffer<float2> _DepthTable;
 
 			struct v2g
 			{
@@ -49,11 +40,10 @@
 			struct g2f
 			{
 				float4 vertex : SV_POSITION;
-                fixed4 color : TEXCOORD0;
                 float2 cardUv : TEXCOORD1;
 			};
 
-            sampler2D _MainTex;
+            sampler2D _DepthTex;
             float _NearPointSize;
             float _FarPointSize;
 			float _MaxDistance;
@@ -73,22 +63,17 @@
 
             v2g vert(uint meshId : SV_VertexID, uint instanceId : SV_InstanceID)
             {
-                KinectPointData pointData = _SomePointsBuffer[instanceId];
+                float2 uvsFromId = GetUvFromId(instanceId);
+                float depthVal = tex2Dlod(_DepthTex, float4(uvsFromId, 0, 0));
+                float2 xyVal = _DepthTable[instanceId] * depthVal;
+
+                float3 basePos = float3(xyVal, depthVal);
 				v2g o;
-                o.uv = pointData.uv / float2(RgbTextureWidth, RgbTextureHeight);
-				o.pos = mul(_MasterTransform, float4(pointData.pos, 1));
-                o.baseDepth = pointData.pos.z;
+				o.pos = mul(_MasterTransform, float4(basePos, 1));
+                o.baseDepth = depthVal;
 				o.viewDir = normalize(WorldSpaceViewDir(o.pos));
 				return o;
 			}
-
-            fixed3 YuvToRgb(fixed Y, fixed U, fixed V)
-            {
-                fixed R = 1.164 * (Y - 0.0625) + 1.596 * (V - .5);
-                fixed G = 1.164 * (Y - 0.0625) - 0.813 * (V - .5) - 0.391 * (U - .5);
-                fixed B = 1.164 * (Y - 0.0625) + 2.018 * (U - .5);
-                return fixed3(R, G, B);
-            }
 
 			[maxvertexcount(4)]
 			void geo(point v2g p[1], inout TriangleStream<g2f> triStream)
@@ -109,12 +94,7 @@
 				float4 bottomVertA = leftScreenOffset + bottomScreenOffset + vertBaseClip;
 				float4 bottomVertB = rightScreenOffset + bottomScreenOffset + vertBaseClip;
 
-
-                fixed4 col = tex2Dlod(_MainTex, float4(p[0].uv, 0, 0));
-                fixed3 rgbCol = YuvToRgb(col.g, col.r, col.b);
-
 				g2f o;
-                o.color = fixed4(rgbCol, 1);
 				o.vertex = topVertB;
                 o.cardUv = float2(0, 0);
 				triStream.Append(o);
@@ -134,7 +114,7 @@
 			
 			float4 frag (g2f i) : SV_Target
 			{
-                return i.color;
+                return 1;
 			}
 			ENDCG
 		}

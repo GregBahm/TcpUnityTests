@@ -34,14 +34,9 @@ namespace Microsoft.Samples.Kinect.ColorBasics
 
         private FrameDescription depthFrameDescription = null;
         private FrameDescription colorFrameDescription;
-
-        private byte[] colorPixels = null;
-        private ushort[] rawDepth = null;
+        
         private byte[] depthPixels = null;
-
-        CameraSpacePoint[] cameraSpaceDepthData;
-        ColorSpacePoint[] colorSpaceDepthData;
-
+        
         private string statusText = null;
 
         private readonly ServerCommunication communicationServer;
@@ -60,13 +55,8 @@ namespace Microsoft.Samples.Kinect.ColorBasics
             this.depthFrameDescription = this.kinectSensor.DepthFrameSource.FrameDescription;
 
             this.depthPixels = new byte[this.depthFrameDescription.Width * this.depthFrameDescription.Height];
-
-            this.rawDepth = new ushort[this.depthFrameDescription.Width * this.depthFrameDescription.Height];
-            this.cameraSpaceDepthData = new CameraSpacePoint[rawDepth.Length];
-            this.colorSpaceDepthData = new ColorSpacePoint[rawDepth.Length];
-
+            
             this.colorFrameDescription = this.kinectSensor.ColorFrameSource.CreateFrameDescription(ColorImageFormat.Bgra);
-            this.colorPixels = new byte[colorFrameDescription.Width * colorFrameDescription.Height * 2];
 
             this.depthBitmap = new WriteableBitmap(this.depthFrameDescription.Width, this.depthFrameDescription.Height, 96.0, 96.0, PixelFormats.Gray8, null);
 
@@ -81,7 +71,7 @@ namespace Microsoft.Samples.Kinect.ColorBasics
 
             this.DataContext = this;
 
-            this.communicationServer = new ServerCommunication(GetDepthDataForNetwork, GetRgbData);
+            this.communicationServer = new ServerCommunication(GetDepthDataForNetwork, GetDepthTableForNetwork);
             this.communicationServer.Start();
 
             MyIP = Dns.GetHostEntry(Dns.GetHostName()).AddressList[3].ToString();
@@ -152,8 +142,6 @@ namespace Microsoft.Samples.Kinect.ColorBasics
             {
                 if (colorFrame != null)
                 {
-                    colorFrame.CopyRawFrameDataToArray(colorPixels);
-
                     FrameDescription colorFrameDescription = colorFrame.FrameDescription;
 
                     using (KinectBuffer colorBuffer = colorFrame.LockRawImageBuffer())
@@ -222,7 +210,7 @@ namespace Microsoft.Samples.Kinect.ColorBasics
             {
                 // Get the depth for this pixel
                 ushort depth = frameData[i];
-                this.rawDepth[i] = depth;
+
                 // To convert to a byte, we're mapping the depth value to the byte range.
                 // Values outside the reliable depth range are mapped to 0 (black).
                 this.depthPixels[i] = (byte)(depth >= minDepth && depth <= maxDepth ? (depth / MapDepthToByte) : 0);
@@ -245,45 +233,28 @@ namespace Microsoft.Samples.Kinect.ColorBasics
                                                             : Properties.Resources.SensorNotAvailableStatusText;
         }
 
+        private byte[] GetDepthTableForNetwork()
+        {
+            PointF[] table = this.kinectSensor.CoordinateMapper.GetDepthFrameToCameraSpaceTable();
+            int byteStride = sizeof(float) * 2;
+            byte[] ret = new byte[table.Length * byteStride];
+            for (int i = 0; i < table.Length; i++)
+            {
+                PointF tablePoint = table[i];
+                int xIndex = i * byteStride;
+                int yIndex = xIndex + sizeof(float);
+                Array.Copy(BitConverter.GetBytes(tablePoint.X), 0, ret, xIndex, sizeof(float));
+                Array.Copy(BitConverter.GetBytes(tablePoint.Y), 0, ret, yIndex, sizeof(float));
+            }
+            return ret;
+        }
+
         private byte[] GetDepthDataForNetwork()
         {
-            lock (rawDepth)
+            lock (depthPixels)
             {
-                this.kinectSensor.CoordinateMapper.MapDepthFrameToCameraSpace(rawDepth, cameraSpaceDepthData);
-                this.kinectSensor.CoordinateMapper.MapDepthFrameToColorSpace(rawDepth, colorSpaceDepthData);
-
-                return GetNetworkDataAsBytes(cameraSpaceDepthData, colorSpaceDepthData);
+                return depthPixels;
             }
-        }
-        private byte[] GetRgbData()
-        {
-            lock (colorPixels)
-            {
-                return colorPixels;
-            }
-        }
-
-        private byte[] GetNetworkDataAsBytes(CameraSpacePoint[] cameraSpaceData, ColorSpacePoint[] colorData)
-        {
-
-            byte[] pixelDataHolder = new byte[5 * sizeof(float) * colorData.Length];
-            for (int i = 0; i < colorData.Length; i++)
-            {
-                CameraSpacePoint cameraPoint = cameraSpaceData[i];
-                ColorSpacePoint colorPoint = colorData[i];
-                GetPixelData(i, cameraPoint, colorPoint, pixelDataHolder, i * 5 * sizeof(float));
-            }
-            return pixelDataHolder;
-        }
-
-        private void GetPixelData(int pixelIndex, CameraSpacePoint cameraPoint, ColorSpacePoint colorPoint, byte[] pixelData, int startIdx)
-        {
-
-            Array.Copy(BitConverter.GetBytes(cameraPoint.X), 0, pixelData, startIdx + 0 * sizeof(float), sizeof(float));
-            Array.Copy(BitConverter.GetBytes(cameraPoint.Y), 0, pixelData, startIdx + 1 * sizeof(float), sizeof(float));
-            Array.Copy(BitConverter.GetBytes(cameraPoint.Z), 0, pixelData, startIdx + 2 * sizeof(float), sizeof(float));
-            Array.Copy(BitConverter.GetBytes(colorPoint.X), 0, pixelData, startIdx + 3 * sizeof(float), sizeof(float));
-            Array.Copy(BitConverter.GetBytes(colorPoint.Y), 0, pixelData, startIdx + 4 * sizeof(float), sizeof(float));
         }
     }
 }
