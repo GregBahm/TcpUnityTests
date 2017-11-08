@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -14,10 +15,7 @@ public class KinectStreamer : MonoBehaviour
     public int Port = 1990;
 
     public Material PointCloudMat;
-
-    private TcpClient client;
-    private NetworkStream stream;
-
+    
     private Texture2D rgbTexture;
 
     private byte[] depthData;
@@ -38,6 +36,8 @@ public class KinectStreamer : MonoBehaviour
     private const int RgbImageSize = RgbTextureWidth * RgbTextureHeight * 2;
 
     private Thread thread;
+
+    public float ThreadFPS;
 
     private void Start()
     {
@@ -66,7 +66,7 @@ public class KinectStreamer : MonoBehaviour
         PointCloudMat.SetPass(0);
         Graphics.DrawProcedural(MeshTopology.Points, 1, PointsCount);
     }
-     
+
     private void GetSourceData()
     {
         lock (depthDataSwapper)
@@ -89,36 +89,51 @@ public class KinectStreamer : MonoBehaviour
 
     private void ReadNetworkData()
     {
+        Stopwatch threadTimer = new Stopwatch();
+
         while (true)
         {
-            client = new TcpClient();
-            client.Connect(IpAddress, Port);
-
-            stream = client.GetStream();
-
-            int offset = 0;
-            while (offset < NetworkDataSize)
+            using (TcpClient client = new TcpClient())
             {
-                offset += stream.Read(depthData, offset, depthData.Length - offset);
-            }
-            offset = 0;
-            while (offset < RgbImageSize)
-            {
-                offset += stream.Read(rgbData, offset, rgbData.Length - offset);
-            }
+                client.Connect(IpAddress, Port);
 
-            stream.Close();
-            client.Close();
+                using (NetworkStream stream = client.GetStream())
+                {
+
+                    while (client.Connected)
+                    {
+                        threadTimer.Start();
+
+                        int offset = 0;
+                        while (offset < NetworkDataSize)
+                        {
+                            offset += stream.Read(depthData, offset, depthData.Length - offset);
+                        }
+                        offset = 0;
+                        while (offset < RgbImageSize)
+                        {
+                            offset += stream.Read(rgbData, offset, rgbData.Length - offset);
+                        }
 
 
-            lock (depthDataSwapper)
-            {
-                depthData.CopyTo(depthDataSwapper, 0);
-            }
-            lock (rgbDataSwapper)
-            {
-                rgbData.CopyTo(rgbDataSwapper, 0);
-            }
-        }
+                        lock (depthDataSwapper)
+                        {
+                            depthDataSwapper = depthData;
+                        }
+                        lock (rgbDataSwapper)
+                        {
+                            rgbDataSwapper = rgbData;
+                        }
+
+                        ThreadFPS = 1.0f / (float)threadTimer.Elapsed.TotalSeconds;
+                        threadTimer.Reset();
+
+                        // Ask for more data
+                        stream.WriteByte(0);
+
+                    } // END client.connected
+                } // END using stream
+            } // END using client            
+        }// END while true
     }
 }
